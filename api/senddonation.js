@@ -16,7 +16,11 @@ function hexToDec(hex) {
 
 async function fetchBuffer(url) {
     try {
-        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
+        const res = await axios.get(url, { 
+            responseType: 'arraybuffer', 
+            timeout: 10000,
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
         return Buffer.from(res.data);
     } catch (e) {
         console.warn('fetchBuffer failed:', url, e.message);
@@ -25,7 +29,7 @@ async function fetchBuffer(url) {
 }
 
 // ==============================
-// Font (download TTF once, cache)
+// Font
 // ==============================
 
 let fontName = 'sans-serif';
@@ -38,19 +42,61 @@ async function ensureFont() {
         'https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-Bold.ttf',
     ];
     for (const url of urls) {
-        try {
-            const buf = await fetchBuffer(url);
-            if (!buf) continue;
-            GlobalFonts.register(buf, 'DonationFont');
-            fontName = 'DonationFont';
-            fontReady = true;
-            console.log('Font loaded:', url);
-            return;
-        } catch (e) {
-            console.warn('Font failed:', e.message);
+        const buf = await fetchBuffer(url);
+        if (buf) {
+            try {
+                GlobalFonts.register(buf, 'DonationFont');
+                fontName = 'DonationFont';
+                fontReady = true;
+                console.log('Font OK:', url);
+                return;
+            } catch(e) {
+                console.warn('Font register failed:', e.message);
+            }
         }
     }
-    console.warn('All fonts failed, using sans-serif fallback');
+}
+
+// ==============================
+// Robux Icon (real PNG, tinted)
+// ==============================
+
+// These are real direct PNG links of the Robux icon
+const ROBUX_ICON_URLS = [
+    'https://static.rbxcdn.com/images/icon-robux-cursor.png',
+    'https://images.rbxcdn.com/icon-robux-2022.png',
+    'https://i.imgur.com/oSVcHoH.png', // white robux icon on transparent background (uploaded)
+];
+
+let robuxIconCache = null;
+
+async function getRobuxIcon() {
+    if (robuxIconCache) return robuxIconCache;
+    for (const url of ROBUX_ICON_URLS) {
+        const buf = await fetchBuffer(url);
+        if (buf) {
+            try {
+                const img = await loadImage(buf);
+                robuxIconCache = img;
+                console.log('Robux icon loaded:', url);
+                return img;
+            } catch(e) {
+                console.warn('Robux icon load failed:', e.message);
+            }
+        }
+    }
+    return null;
+}
+
+// Tint a loaded image to a specific hex color
+function tintImage(img, size, color) {
+    const off = createCanvas(size, size);
+    const ctx = off.getContext('2d');
+    ctx.drawImage(img, 0, 0, size, size);
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, size, size);
+    return off;
 }
 
 // ==============================
@@ -58,7 +104,6 @@ async function ensureFont() {
 // ==============================
 
 function drawAvatar(ctx, img, cx, cy, radius, borderColor) {
-    // Border ring
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, radius + 4, 0, Math.PI * 2);
@@ -67,38 +112,12 @@ function drawAvatar(ctx, img, cx, cy, radius, borderColor) {
     ctx.stroke();
     ctx.restore();
 
-    // Clipped avatar
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.closePath();
     ctx.clip();
     ctx.drawImage(img, cx - radius, cy - radius, radius * 2, radius * 2);
-    ctx.restore();
-}
-
-// ==============================
-// Draw Robux Icon (circle with R in the middle)
-// Matches the exact style in your reference image
-// ==============================
-
-function drawRobuxCircle(ctx, cx, cy, radius, color) {
-    // Outer ring
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
-    ctx.stroke();
-    ctx.restore();
-
-    // Inner R letter
-    ctx.save();
-    ctx.font = `bold ${Math.floor(radius * 1.1)}px ${fontName}`;
-    ctx.fillStyle = color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('R', cx + 1, cy + 1);
     ctx.restore();
 }
 
@@ -125,14 +144,15 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Missing fields' });
         }
 
-        await ensureFont();
+        // Load font and robux icon in parallel
+        await Promise.all([ensureFont(), getRobuxIcon()]);
 
         const numAmount = parseInt(
             typeof amount === 'string' ? amount.replace(/,/g, '') : amount
         );
 
-        // ── Theme color based on amount ──
-        let themeHex = '#00FF47';   // green  (< 10)
+        // ── Theme ──
+        let themeHex = '#00FF47';
         let emoji    = '<:robux:1451215082640900146>';
 
         if (numAmount >= 10000) {
@@ -159,9 +179,9 @@ module.exports = async function handler(req, res) {
         const ctx = canvas.getContext('2d');
 
         // Transparent + radial glow
-        const glow = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 260);
-        glow.addColorStop(0,   `rgba(${r},${g},${b},0.30)`);
-        glow.addColorStop(1,   `rgba(0,0,0,0)`);
+        const glow = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 260);
+        glow.addColorStop(0, `rgba(${r},${g},${b},0.30)`);
+        glow.addColorStop(1, `rgba(0,0,0,0)`);
         ctx.fillStyle = glow;
         ctx.fillRect(0, 0, W, H);
 
@@ -170,6 +190,7 @@ module.exports = async function handler(req, res) {
             fetchBuffer(donatorAvatar),
             fetchBuffer(receiverAvatar)
         ]);
+
         if (!dBuf || !rBuf) {
             return res.status(500).json({ error: 'Avatar fetch failed' });
         }
@@ -179,72 +200,66 @@ module.exports = async function handler(req, res) {
             loadImage(rBuf)
         ]);
 
-        // ── Layout constants ──
-        const avatarRadius = 55;           // avatar circle radius
-        const avatarY      = H / 2 - 14;  // vertical center for avatars
+        // ── Layout ──
+        const avatarRadius = 55;
+        const avatarCY     = H / 2 - 12;
+        const leftCX       = 80;
+        const rightCX      = W - 80;
+        const centerX      = W / 2;
 
-        const leftCX  = 80;               // donator center X
-        const rightCX = W - 80;           // receiver center X
+        drawAvatar(ctx, dImg, leftCX,  avatarCY, avatarRadius, themeHex);
+        drawAvatar(ctx, rImg, rightCX, avatarCY, avatarRadius, themeHex);
 
-        // ── Draw avatars ──
-        drawAvatar(ctx, dImg, leftCX,  avatarY, avatarRadius, themeHex);
-        drawAvatar(ctx, rImg, rightCX, avatarY, avatarRadius, themeHex);
+        // ── Center: Robux Icon + Amount on same row ──
+        const iconSize   = 48; // big enough to clearly see
+        const amtText    = formatNumber(numAmount);
+        const gap        = 10;
 
-        // ── Center section ──
-        const cx = W / 2;
-
-        // Robux icon circle  (radius 18)
-        const iconR    = 18;
-        const iconCY   = H / 2 - 24;      // sits ABOVE the amount text
-
-        drawRobuxCircle(ctx, cx - 2, iconCY, iconR, themeHex);
-
-        // Amount — on the SAME line as the icon (to the right)
-        const amtText = formatNumber(numAmount);
-        ctx.font          = `bold 36px ${fontName}`;
-        ctx.fillStyle     = themeHex;
-        ctx.textAlign     = 'left';
-        ctx.textBaseline  = 'middle';
-
-        // Measure so we can center the icon+text group together
+        ctx.font         = `bold 48px ${fontName}`;
+        ctx.textBaseline = 'middle';
         const amtWidth   = ctx.measureText(amtText).width;
-        const gap        = 8;
-        const groupW     = (iconR * 2) + gap + amtWidth;
-        const groupLeft  = cx - groupW / 2;
 
-        // Redraw icon at correct grouped position
-        drawRobuxCircle(ctx, groupLeft + iconR, iconCY, iconR, themeHex);
+        // Total width of [icon + gap + text]
+        const groupW     = iconSize + gap + amtWidth;
+        const groupLeft  = centerX - groupW / 2;
+        const rowY       = H / 2 - 22; // vertical center of the icon+text row
 
-        // Draw amount text right of icon
-        ctx.fillText(amtText, groupLeft + iconR * 2 + gap, iconCY);
+        // Draw tinted Robux icon
+        if (robuxIconCache) {
+            const tinted = tintImage(robuxIconCache, iconSize, themeHex);
+            ctx.drawImage(tinted, groupLeft, rowY - iconSize / 2, iconSize, iconSize);
+        }
 
-        // "donated to"
-        ctx.font         = `bold 20px ${fontName}`;
+        // Draw amount text
+        ctx.fillStyle    = themeHex;
+        ctx.textAlign    = 'left';
+        ctx.fillText(amtText, groupLeft + iconSize + gap, rowY);
+
+        // ── "donated to" ──
+        ctx.font         = `bold 22px ${fontName}`;
         ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'alphabetic';
-        ctx.fillText('donated to', cx, H / 2 + 22);
+        ctx.fillText('donated to', centerX, H / 2 + 32);
 
-        // ── Usernames under avatars ──
-        ctx.font         = `bold 13px ${fontName}`;
+        // ── Usernames ──
+        ctx.font         = `bold 14px ${fontName}`;
         ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
-        ctx.textBaseline = 'alphabetic';
 
-        const trim = (name, max = 14) =>
-            name.length > max ? name.slice(0, max) + '..' : name;
+        const trim = (s, max = 14) => s.length > max ? s.slice(0, max) + '..' : s;
 
-        ctx.fillText('@' + trim(donatorName),  leftCX,  avatarY + avatarRadius + 20);
-        ctx.fillText('@' + trim(receiverName), rightCX, avatarY + avatarRadius + 20);
+        ctx.fillText('@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22);
+        ctx.fillText('@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22);
 
         // ── Time ──
-        const now  = new Date();
-        const h    = now.getHours();
-        const m    = now.getMinutes().toString().padStart(2, '0');
-        const ap   = h >= 12 ? 'PM' : 'AM';
-        const dh   = h % 12 || 12;
+        const now = new Date();
+        const h   = now.getHours();
+        const m   = now.getMinutes().toString().padStart(2, '0');
+        const ap  = h >= 12 ? 'PM' : 'AM';
+        const dh  = h % 12 || 12;
 
-        // ── Send to Discord ──
+        // ── Discord Webhook ──
         const imgBuf = canvas.toBuffer('image/png');
         const form   = new FormData();
 
