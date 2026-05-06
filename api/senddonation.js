@@ -85,8 +85,6 @@ function tintIcon(img, size, hexColor) {
     return off;
 }
 
-// Black stroke outline around the Robux icon shape
-// Draws the icon in black in 8 directions then colored on top
 function drawRobuxWithStroke(ctx, img, cx, cy, iconSize, color, strokeWidth) {
     const strokeSize = iconSize + strokeWidth * 2;
 
@@ -97,7 +95,6 @@ function drawRobuxWithStroke(ctx, img, cx, cy, iconSize, color, strokeWidth) {
     blackCtx.fillStyle = 'rgba(0,0,0,0.9)';
     blackCtx.fillRect(0, 0, strokeSize, strokeSize);
 
-    // Draw black version in all 8 directions to create outline
     const offsets = [
         [-strokeWidth, -strokeWidth],
         [0,            -strokeWidth],
@@ -119,7 +116,6 @@ function drawRobuxWithStroke(ctx, img, cx, cy, iconSize, color, strokeWidth) {
         );
     }
 
-    // Draw colored icon on top
     const tinted = tintIcon(img, iconSize, color);
     ctx.drawImage(tinted, cx - iconSize / 2, cy - iconSize / 2, iconSize, iconSize);
 }
@@ -273,19 +269,19 @@ module.exports = async function handler(req, res) {
                 rowY,
                 iconSize,
                 themeHex,
-                4
+                2 // thin stroke
             );
         }
 
         // Amount text WITH black stroke
         ctx.textAlign = 'left';
-        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 6);
+        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 3);
 
         // "donated to" WITH black stroke
         ctx.font         = `bold 20px ${fontName}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'alphabetic';
-        drawStrokedText(ctx, 'donated to', centerX, H / 2 + 30, '#FFFFFF', 4);
+        drawStrokedText(ctx, 'donated to', centerX, H / 2 + 30, '#FFFFFF', 2);
 
         // Usernames WITH black stroke
         ctx.font      = `bold 13px ${fontName}`;
@@ -293,8 +289,8 @@ module.exports = async function handler(req, res) {
 
         const trim = (s, max = 14) => s.length > max ? s.slice(0, max) + '..' : s;
 
-        drawStrokedText(ctx, '@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22, '#FFFFFF', 3);
-        drawStrokedText(ctx, '@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22, '#FFFFFF', 3);
+        drawStrokedText(ctx, '@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22, '#FFFFFF', 2);
+        drawStrokedText(ctx, '@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22, '#FFFFFF', 2);
 
         // ── Time ──
         const now = new Date();
