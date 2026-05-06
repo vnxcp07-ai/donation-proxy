@@ -16,8 +16,8 @@ function hexToDec(hex) {
 
 async function fetchBuffer(url) {
     try {
-        const res = await axios.get(url, { 
-            responseType: 'arraybuffer', 
+        const res = await axios.get(url, {
+            responseType: 'arraybuffer',
             timeout: 10000,
             headers: { 'User-Agent': 'Mozilla/5.0' }
         });
@@ -50,7 +50,7 @@ async function ensureFont() {
                 fontReady = true;
                 console.log('Font OK:', url);
                 return;
-            } catch(e) {
+            } catch (e) {
                 console.warn('Font register failed:', e.message);
             }
         }
@@ -58,37 +58,67 @@ async function ensureFont() {
 }
 
 // ==============================
-// Robux Icon - Your uploaded version
+// Robux Icon - tinted properly
+// This version works even if background is white
+// It multiplies the color over the dark pixels only
 // ==============================
-
-const ROBUX_ICON_URL = 'https://i.imgur.com/Yzmxrvr.png';
 
 let robuxIconCache = null;
 
 async function getRobuxIcon() {
     if (robuxIconCache) return robuxIconCache;
-    const buf = await fetchBuffer(ROBUX_ICON_URL);
+    const buf = await fetchBuffer('https://i.imgur.com/Yzmxrvr.png');
     if (buf) {
         try {
-            const img = await loadImage(buf);
-            robuxIconCache = img;
-            console.log('Robux icon loaded');
-            return img;
-        } catch(e) {
-            console.warn('Robux icon load failed:', e.message);
+            robuxIconCache = await loadImage(buf);
+            console.log('Robux icon loaded OK');
+        } catch (e) {
+            console.warn('Robux icon loadImage failed:', e.message);
         }
     }
-    return null;
+    return robuxIconCache;
 }
 
-// Tint a loaded image to a specific hex color
-function tintImage(img, size, color) {
+// Smart tint: draws icon, removes white background, applies color
+function tintIcon(img, size, hexColor) {
     const off = createCanvas(size, size);
     const ctx = off.getContext('2d');
+
+    // Step 1: draw the original icon
     ctx.drawImage(img, 0, 0, size, size);
-    ctx.globalCompositeOperation = 'source-in';
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, size, size);
+
+    // Step 2: get pixel data and remove white/light pixels
+    const imageData = ctx.getImageData(0, 0, size, size);
+    const data = imageData.data;
+
+    const tr = parseInt(hexColor.slice(1, 3), 16);
+    const tg = parseInt(hexColor.slice(3, 5), 16);
+    const tb = parseInt(hexColor.slice(5, 7), 16);
+
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+
+        // Brightness of this pixel (0 = black, 255 = white)
+        const brightness = (r + g + b) / 3;
+
+        if (brightness > 200 && a > 10) {
+            // Very light/white pixel → make fully transparent (background removal)
+            data[i + 3] = 0;
+        } else if (a > 10) {
+            // Dark pixel (the actual icon shape) → tint it with the theme color
+            // Blend: the darker the original pixel, the more opaque it is
+            const strength = 1 - brightness / 255;
+            data[i]     = tr;
+            data[i + 1] = tg;
+            data[i + 2] = tb;
+            data[i + 3] = Math.floor(255 * strength * (a / 255));
+        }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
     return off;
 }
 
@@ -97,14 +127,15 @@ function tintImage(img, size, color) {
 // ==============================
 
 function drawStrokedText(ctx, text, x, y, fillColor, strokeWidth = 4) {
+    ctx.save();
     ctx.lineJoin    = 'round';
     ctx.miterLimit  = 2;
-    ctx.strokeStyle = '#000000';
+    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
     ctx.lineWidth   = strokeWidth;
     ctx.strokeText(text, x, y);
-
     ctx.fillStyle   = fillColor;
     ctx.fillText(text, x, y);
+    ctx.restore();
 }
 
 // ==============================
@@ -112,6 +143,7 @@ function drawStrokedText(ctx, text, x, y, fillColor, strokeWidth = 4) {
 // ==============================
 
 function drawAvatar(ctx, img, cx, cy, radius, borderColor) {
+    // Border ring
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, radius + 4, 0, Math.PI * 2);
@@ -120,6 +152,7 @@ function drawAvatar(ctx, img, cx, cy, radius, borderColor) {
     ctx.stroke();
     ctx.restore();
 
+    // Clipped image
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -158,7 +191,7 @@ module.exports = async function handler(req, res) {
             typeof amount === 'string' ? amount.replace(/,/g, '') : amount
         );
 
-        // ── Theme ──
+        // ── Theme color ──
         let themeHex = '#00FF47';
         let emoji    = '<:robux:1451215082640900146>';
 
@@ -185,8 +218,8 @@ module.exports = async function handler(req, res) {
         const canvas = createCanvas(W, H);
         const ctx = canvas.getContext('2d');
 
-        // Transparent + radial glow
-        const glow = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 260);
+        // Transparent radial glow background
+        const glow = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 260);
         glow.addColorStop(0, `rgba(${r},${g},${b},0.30)`);
         glow.addColorStop(1, `rgba(0,0,0,0)`);
         ctx.fillStyle = glow;
@@ -217,38 +250,39 @@ module.exports = async function handler(req, res) {
         drawAvatar(ctx, dImg, leftCX,  avatarCY, avatarRadius, themeHex);
         drawAvatar(ctx, rImg, rightCX, avatarCY, avatarRadius, themeHex);
 
-        // ── Center: Robux Icon + Amount on same row ──
-        const iconSize = 48;
+        // ── Center: Icon + Amount ──
+        const iconSize = 50;
         const amtText  = formatNumber(numAmount);
         const gap      = 10;
 
-        ctx.font         = `bold 48px ${fontName}`;
+        ctx.font         = `bold 50px ${fontName}`;
         ctx.textBaseline = 'middle';
         const amtWidth   = ctx.measureText(amtText).width;
 
+        // Total group width centered
         const groupW    = iconSize + gap + amtWidth;
         const groupLeft = centerX - groupW / 2;
-        const rowY      = H / 2 - 22;
+        const rowY      = H / 2 - 18;
 
-        // Draw tinted Robux icon
+        // Draw Robux icon (properly tinted, white background removed)
         if (robuxIconCache) {
-            const tinted = tintImage(robuxIconCache, iconSize, themeHex);
+            const tinted = tintIcon(robuxIconCache, iconSize, themeHex);
             ctx.drawImage(tinted, groupLeft, rowY - iconSize / 2, iconSize, iconSize);
         }
 
-        // Draw amount text WITH black stroke
+        // Amount text with stroke
         ctx.textAlign = 'left';
-        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 5);
+        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 6);
 
-        // ── "donated to" with stroke ──
+        // "donated to" with stroke
         ctx.font         = `bold 22px ${fontName}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'alphabetic';
         drawStrokedText(ctx, 'donated to', centerX, H / 2 + 32, '#FFFFFF', 4);
 
-        // ── Usernames with stroke ──
-        ctx.font         = `bold 14px ${fontName}`;
-        ctx.textAlign    = 'center';
+        // Usernames with stroke
+        ctx.font      = `bold 14px ${fontName}`;
+        ctx.textAlign = 'center';
 
         const trim = (s, max = 14) => s.length > max ? s.slice(0, max) + '..' : s;
 
@@ -257,12 +291,12 @@ module.exports = async function handler(req, res) {
 
         // ── Time ──
         const now = new Date();
-        const h   = now.getHours();
-        const m   = now.getMinutes().toString().padStart(2, '0');
-        const ap  = h >= 12 ? 'PM' : 'AM';
-        const dh  = h % 12 || 12;
+        const hh  = now.getHours();
+        const mm  = now.getMinutes().toString().padStart(2, '0');
+        const ap  = hh >= 12 ? 'PM' : 'AM';
+        const dh  = hh % 12 || 12;
 
-        // ── Discord Webhook ──
+        // ── Send to Discord ──
         const imgBuf = canvas.toBuffer('image/png');
         const form   = new FormData();
 
@@ -271,7 +305,7 @@ module.exports = async function handler(req, res) {
             embeds: [{
                 color: hexToDec(themeHex),
                 image: { url: 'attachment://donation.png' },
-                footer: { text: `Donated on • Today at ${dh}:${m} ${ap}` }
+                footer: { text: `Donated on • Today at ${dh}:${mm} ${ap}` }
             }]
         };
 
