@@ -2,10 +2,6 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const axios = require('axios');
 const FormData = require('form-data');
 
-// ==============================
-// Helpers
-// ==============================
-
 function formatNumber(n) {
     return parseInt(n).toLocaleString('en-US');
 }
@@ -59,8 +55,6 @@ async function ensureFont() {
 
 // ==============================
 // Robux Icon
-// Already transparent (removebg)
-// Just tint it with theme color
 // ==============================
 
 const ROBUX_URL = 'https://raw.githubusercontent.com/vnxcp07-ai/donation-proxy/main/edfae9388da4cd8496b885a8a2df613372500d9c-removebg-preview.png';
@@ -81,37 +75,14 @@ async function getRobuxIcon() {
     return robuxIconCache;
 }
 
-// Since image is already transparent (removebg)
-// we just need to tint the visible pixels
 function tintIcon(img, size, hexColor) {
     const off = createCanvas(size, size);
     const ctx = off.getContext('2d');
-
-    // Draw original transparent image
     ctx.drawImage(img, 0, 0, size, size);
-
-    // Tint: multiply color over existing pixels only
     ctx.globalCompositeOperation = 'source-in';
     ctx.fillStyle = hexColor;
     ctx.fillRect(0, 0, size, size);
-
     return off;
-}
-
-// ==============================
-// Draw text with black stroke
-// ==============================
-
-function drawStrokedText(ctx, text, x, y, fillColor, strokeWidth) {
-    ctx.save();
-    ctx.lineJoin    = 'round';
-    ctx.miterLimit  = 2;
-    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    ctx.lineWidth   = strokeWidth;
-    ctx.strokeText(text, x, y);
-    ctx.fillStyle   = fillColor;
-    ctx.fillText(text, x, y);
-    ctx.restore();
 }
 
 // ==============================
@@ -164,6 +135,7 @@ module.exports = async function handler(req, res) {
         const numAmount = parseInt(
             typeof amount === 'string' ? amount.replace(/,/g, '') : amount
         );
+
         // ── Theme color ──
         let themeHex = '#00FF47';
         let emoji    = '<:robux:1451215082640900146>';
@@ -191,10 +163,11 @@ module.exports = async function handler(req, res) {
         const canvas = createCanvas(W, H);
         const ctx = canvas.getContext('2d');
 
-        // Transparent radial glow background
-        const glow = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 260);
-        glow.addColorStop(0, `rgba(${r},${g},${b},0.30)`);
-        glow.addColorStop(1, `rgba(0,0,0,0)`);
+        // Gradient from BOTTOM up, fading to transparent at top
+        const glow = ctx.createLinearGradient(0, H, 0, 0);
+        glow.addColorStop(0,   `rgba(${r},${g},${b},0.35)`); // strong at bottom
+        glow.addColorStop(0.5, `rgba(${r},${g},${b},0.10)`); // fades in middle
+        glow.addColorStop(1,   `rgba(0,0,0,0)`);             // transparent at top
         ctx.fillStyle = glow;
         ctx.fillRect(0, 0, W, H);
 
@@ -224,43 +197,45 @@ module.exports = async function handler(req, res) {
         drawAvatar(ctx, rImg, rightCX, avatarCY, avatarRadius, themeHex);
 
         // ── Center: Robux Icon + Amount on same row ──
-        const iconSize = 52;
+        const iconSize = 38; // smaller icon
         const amtText  = formatNumber(numAmount);
-        const gap      = 12;
+        const gap      = 10;
 
-        ctx.font         = `bold 50px ${fontName}`;
+        ctx.font         = `bold 44px ${fontName}`;
         ctx.textBaseline = 'middle';
         const amtWidth   = ctx.measureText(amtText).width;
 
-        // Center the whole group
         const groupW    = iconSize + gap + amtWidth;
         const groupLeft = centerX - groupW / 2;
         const rowY      = H / 2 - 18;
 
-        // Draw tinted Robux icon (already transparent so source-in works perfectly)
+        // Draw tinted Robux icon
         if (robuxIconCache) {
             const tinted = tintIcon(robuxIconCache, iconSize, themeHex);
             ctx.drawImage(tinted, groupLeft, rowY - iconSize / 2, iconSize, iconSize);
         }
 
-        // Amount text with black stroke
-        ctx.textAlign = 'left';
-        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 6);
+        // Amount text NO stroke
+        ctx.textAlign  = 'left';
+        ctx.fillStyle  = themeHex;
+        ctx.fillText(amtText, groupLeft + iconSize + gap, rowY);
 
-        // "donated to" with black stroke
-        ctx.font         = `bold 22px ${fontName}`;
+        // "donated to" NO stroke
+        ctx.font         = `bold 20px ${fontName}`;
+        ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'alphabetic';
-        drawStrokedText(ctx, 'donated to', centerX, H / 2 + 32, '#FFFFFF', 4);
+        ctx.fillText('donated to', centerX, H / 2 + 30);
 
-        // Usernames with black stroke
-        ctx.font      = `bold 14px ${fontName}`;
+        // Usernames NO stroke
+        ctx.font      = `bold 13px ${fontName}`;
+        ctx.fillStyle = '#FFFFFF';
         ctx.textAlign = 'center';
 
         const trim = (s, max = 14) => s.length > max ? s.slice(0, max) + '..' : s;
 
-        drawStrokedText(ctx, '@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22, '#FFFFFF', 3);
-        drawStrokedText(ctx, '@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22, '#FFFFFF', 3);
+        ctx.fillText('@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22);
+        ctx.fillText('@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22);
 
         // ── Time ──
         const now = new Date();
