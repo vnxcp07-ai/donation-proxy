@@ -1,1 +1,9 @@
-
+{
+  "name": "donation-proxy-vercel",
+  "version": "1.0.0",
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.53",
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0"
+  }
+}
