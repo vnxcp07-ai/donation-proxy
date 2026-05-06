@@ -86,7 +86,7 @@ function tintIcon(img, size, hexColor) {
 }
 
 function drawRobuxWithStroke(ctx, img, cx, cy, iconSize, color, strokeWidth) {
-    const strokeSize = iconSize + strokeWidth * 2;
+    const strokeSize = iconSize + strokeWidth * 1;
 
     const blackOff = createCanvas(strokeSize, strokeSize);
     const blackCtx = blackOff.getContext('2d');
@@ -275,13 +275,13 @@ module.exports = async function handler(req, res) {
 
         // Amount text WITH black stroke
         ctx.textAlign = 'left';
-        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 3);
+        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 5);
 
         // "donated to" WITH black stroke
         ctx.font         = `bold 20px ${fontName}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'alphabetic';
-        drawStrokedText(ctx, 'donated to', centerX, H / 2 + 30, '#FFFFFF', 2);
+        drawStrokedText(ctx, 'donated to', centerX, H / 2 + 30, '#FFFFFF', 4);
 
         // Usernames WITH black stroke
         ctx.font      = `bold 13px ${fontName}`;
@@ -289,8 +289,8 @@ module.exports = async function handler(req, res) {
 
         const trim = (s, max = 14) => s.length > max ? s.slice(0, max) + '..' : s;
 
-        drawStrokedText(ctx, '@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22, '#FFFFFF', 2);
-        drawStrokedText(ctx, '@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22, '#FFFFFF', 2);
+        drawStrokedText(ctx, '@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22, '#FFFFFF', 4);
+        drawStrokedText(ctx, '@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22, '#FFFFFF', 4);
 
         // ── Time ──
         const now = new Date();
