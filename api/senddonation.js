@@ -58,31 +58,24 @@ async function ensureFont() {
 }
 
 // ==============================
-// Robux Icon (real PNG, tinted)
+// Robux Icon - Your uploaded version
 // ==============================
 
-// These are real direct PNG links of the Robux icon
-const ROBUX_ICON_URLS = [
-    'https://static.rbxcdn.com/images/icon-robux-cursor.png',
-    'https://images.rbxcdn.com/icon-robux-2022.png',
-    'https://i.imgur.com/oSVcHoH.png', // white robux icon on transparent background (uploaded)
-];
+const ROBUX_ICON_URL = 'https://i.imgur.com/Yzmxrvr.png';
 
 let robuxIconCache = null;
 
 async function getRobuxIcon() {
     if (robuxIconCache) return robuxIconCache;
-    for (const url of ROBUX_ICON_URLS) {
-        const buf = await fetchBuffer(url);
-        if (buf) {
-            try {
-                const img = await loadImage(buf);
-                robuxIconCache = img;
-                console.log('Robux icon loaded:', url);
-                return img;
-            } catch(e) {
-                console.warn('Robux icon load failed:', e.message);
-            }
+    const buf = await fetchBuffer(ROBUX_ICON_URL);
+    if (buf) {
+        try {
+            const img = await loadImage(buf);
+            robuxIconCache = img;
+            console.log('Robux icon loaded');
+            return img;
+        } catch(e) {
+            console.warn('Robux icon load failed:', e.message);
         }
     }
     return null;
@@ -97,6 +90,21 @@ function tintImage(img, size, color) {
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, size, size);
     return off;
+}
+
+// ==============================
+// Draw text with black stroke
+// ==============================
+
+function drawStrokedText(ctx, text, x, y, fillColor, strokeWidth = 4) {
+    ctx.lineJoin    = 'round';
+    ctx.miterLimit  = 2;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth   = strokeWidth;
+    ctx.strokeText(text, x, y);
+
+    ctx.fillStyle   = fillColor;
+    ctx.fillText(text, x, y);
 }
 
 // ==============================
@@ -144,7 +152,6 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Missing fields' });
         }
 
-        // Load font and robux icon in parallel
         await Promise.all([ensureFont(), getRobuxIcon()]);
 
         const numAmount = parseInt(
@@ -211,18 +218,17 @@ module.exports = async function handler(req, res) {
         drawAvatar(ctx, rImg, rightCX, avatarCY, avatarRadius, themeHex);
 
         // ── Center: Robux Icon + Amount on same row ──
-        const iconSize   = 48; // big enough to clearly see
-        const amtText    = formatNumber(numAmount);
-        const gap        = 10;
+        const iconSize = 48;
+        const amtText  = formatNumber(numAmount);
+        const gap      = 10;
 
         ctx.font         = `bold 48px ${fontName}`;
         ctx.textBaseline = 'middle';
         const amtWidth   = ctx.measureText(amtText).width;
 
-        // Total width of [icon + gap + text]
-        const groupW     = iconSize + gap + amtWidth;
-        const groupLeft  = centerX - groupW / 2;
-        const rowY       = H / 2 - 22; // vertical center of the icon+text row
+        const groupW    = iconSize + gap + amtWidth;
+        const groupLeft = centerX - groupW / 2;
+        const rowY      = H / 2 - 22;
 
         // Draw tinted Robux icon
         if (robuxIconCache) {
@@ -230,27 +236,24 @@ module.exports = async function handler(req, res) {
             ctx.drawImage(tinted, groupLeft, rowY - iconSize / 2, iconSize, iconSize);
         }
 
-        // Draw amount text
-        ctx.fillStyle    = themeHex;
-        ctx.textAlign    = 'left';
-        ctx.fillText(amtText, groupLeft + iconSize + gap, rowY);
+        // Draw amount text WITH black stroke
+        ctx.textAlign = 'left';
+        drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 5);
 
-        // ── "donated to" ──
+        // ── "donated to" with stroke ──
         ctx.font         = `bold 22px ${fontName}`;
-        ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'alphabetic';
-        ctx.fillText('donated to', centerX, H / 2 + 32);
+        drawStrokedText(ctx, 'donated to', centerX, H / 2 + 32, '#FFFFFF', 4);
 
-        // ── Usernames ──
+        // ── Usernames with stroke ──
         ctx.font         = `bold 14px ${fontName}`;
-        ctx.fillStyle    = '#FFFFFF';
         ctx.textAlign    = 'center';
 
         const trim = (s, max = 14) => s.length > max ? s.slice(0, max) + '..' : s;
 
-        ctx.fillText('@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22);
-        ctx.fillText('@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22);
+        drawStrokedText(ctx, '@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22, '#FFFFFF', 3);
+        drawStrokedText(ctx, '@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22, '#FFFFFF', 3);
 
         // ── Time ──
         const now = new Date();
