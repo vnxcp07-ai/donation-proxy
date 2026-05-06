@@ -2,18 +2,18 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const axios = require('axios');
 const FormData = require('form-data');
 
-// << Load Custom Font >> //
-// Vercel doesn't have fonts installed, so we must load one!
+// << 1. Load Font Fix for Vercel >> //
 let fontLoaded = false;
 async function initFont() {
     if (fontLoaded) return;
     try {
-        const url = 'https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf';
+        // Download Roboto Bold directly from Google Fonts
+        const url = 'https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf';
         const res = await axios.get(url, { responseType: 'arraybuffer' });
-        GlobalFonts.register(res.data, 'Montserrat');
+        GlobalFonts.register(res.data, 'Roboto');
         fontLoaded = true;
     } catch (err) {
-        console.error('Failed to load font', err);
+        console.error('Failed to load font:', err);
     }
 }
 
@@ -33,44 +33,24 @@ async function fetchImage(url) {
 
 function drawCircularImage(ctx, img, x, y, size, borderColor, borderWidth) {
     const radius = size / 2; const centerX = x + radius; const centerY = y + radius;
-    
-    // Draw Border
     ctx.save(); ctx.beginPath(); ctx.arc(centerX, centerY, radius + borderWidth, 0, Math.PI * 2); 
     ctx.strokeStyle = borderColor; ctx.lineWidth = borderWidth; ctx.stroke(); ctx.restore();
-    
-    // Draw Avatar
     ctx.save(); ctx.beginPath(); ctx.arc(centerX, centerY, radius, 0, Math.PI * 2); 
     ctx.closePath(); ctx.clip(); ctx.drawImage(img, x, y, size, size); ctx.restore();
-}
-
-// Draw a proper modern Robux Icon instead of a circle!
-function drawRobuxIcon(ctx, x, y, size, color) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(12 * Math.PI / 180); // Tilt right slightly
-    
-    // Outer Box
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    const rOuter = size * 0.15; const s = size / 2;
-    ctx.moveTo(-s + rOuter, -s); ctx.arcTo(s, -s, s, s, rOuter); ctx.arcTo(s, s, -s, s, rOuter);
-    ctx.arcTo(-s, s, -s, -s, rOuter); ctx.arcTo(-s, -s, s, -s, rOuter);
-    ctx.fill();
-
-    // Inner Hole Cutout
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.beginPath();
-    const rInner = size * 0.05; const is = size * 0.18; 
-    ctx.moveTo(-is + rInner, -is); ctx.arcTo(is, -is, is, is, rInner); ctx.arcTo(is, is, -is, is, rInner);
-    ctx.arcTo(-is, is, -is, -is, rInner); ctx.arcTo(-is, -is, is, -is, rInner);
-    ctx.fill();
-    
-    ctx.restore();
 }
 
 function hexToDec(hex) {
     return parseInt(hex.replace('#', ''), 16);
 }
+
+// << Official Robux Logo SVG >>
+const robuxSvg = `
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <g transform="rotate(12 128 128)">
+    <path d="M56 32h144a24 24 0 0 1 24 24v144a24 24 0 0 1-24 24H56a24 24 0 0 1-24-24V56a24 24 0 0 1 24-24zm40 64a8 8 0 0 0-8 8v48a8 8 0 0 0 8 8h48a8 8 0 0 0 8-8v-48a8 8 0 0 0-8-8H96z" fill="white" fill-rule="evenodd"/>
+  </g>
+</svg>`;
+const robuxSvgBase64 = "data:image/svg+xml;base64," + Buffer.from(robuxSvg).toString('base64');
 
 module.exports = async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -79,7 +59,8 @@ module.exports = async function handler(req, res) {
         const { donatorId, receiverId, donatorName, receiverName, donatorAvatar, receiverAvatar, amount, webhookUrl } = req.body;
         if (!donatorAvatar || !receiverAvatar || !amount || !webhookUrl) return res.status(400).json({ error: 'Missing fields' });
 
-        await initFont(); // Ensure font is loaded before drawing text!
+        // Wait for font to load so text doesn't turn invisible!
+        await initFont(); 
 
         const numAmount = parseInt(typeof amount === 'string' ? amount.replace(/,/g, '') : amount);
         
@@ -102,19 +83,18 @@ module.exports = async function handler(req, res) {
         }
 
         const embedColorDec = hexToDec(themeHex);
-        const canvasWidth = 650; const canvasHeight = 220; // Slightly wider for big donations
+        const canvasWidth = 650; const canvasHeight = 220; 
         const canvas = createCanvas(canvasWidth, canvasHeight);
         const ctx = canvas.getContext('2d');
 
-        // << Transparent Background & Glow >> //
-        // We do NOT draw a solid background color anymore!
+        // << Fully Transparent Background + Glow >> //
         const r = parseInt(themeHex.slice(1, 3), 16);
         const g = parseInt(themeHex.slice(3, 5), 16);
         const b = parseInt(themeHex.slice(5, 7), 16);
         
         const gradient = ctx.createRadialGradient(canvasWidth / 2, canvasHeight / 2, 0, canvasWidth / 2, canvasHeight / 2, 300);
-        gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.25)`); // Inner soft glow
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Fade entirely out to transparent
+        gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.35)`); // Inner soft glow
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Fade completely out
         
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -132,39 +112,52 @@ module.exports = async function handler(req, res) {
         const donatorX = 40; 
         const receiverX = canvasWidth - avatarSize - 40;
 
-        // Draw Avatars
         drawCircularImage(ctx, donatorImg, donatorX, avatarY, avatarSize, themeHex, 4);
         drawCircularImage(ctx, receiverImg, receiverX, avatarY, avatarSize, themeHex, 4);
 
         // << Draw Centered Info >> //
         const formattedAmount = formatNumber(numAmount);
         
-        ctx.font = '40px Montserrat';
-        const textWidth = ctx.measureText(formattedAmount).width;
-        const iconSize = 36;
-        const gap = 12;
+        // Use our loaded Roboto font!
+        ctx.font = 'bold 42px Roboto, sans-serif';
+        const metrics = ctx.measureText(formattedAmount);
+        const textWidth = metrics.width || (formattedAmount.length * 20); // Fallback math just in case
         
-        // Calculate exact center for icon + text combined
+        const iconSize = 42;
+        const gap = 10;
+        
+        // Calculate exact center
         const totalWidth = iconSize + gap + textWidth;
         const startX = (canvasWidth - totalWidth) / 2;
         const centerY = canvasHeight / 2 - 20;
 
-        // 1. Draw Robux Logo
-        drawRobuxIcon(ctx, startX + iconSize / 2, centerY, iconSize, themeHex);
+        // 1. Draw and Colorize the Official Robux Logo
+        const offscreen = createCanvas(iconSize, iconSize);
+        const offCtx = offscreen.getContext('2d');
+        const rbIcon = await loadImage(robuxSvgBase64);
+        offCtx.drawImage(rbIcon, 0, 0, iconSize, iconSize);
+        
+        // Apply color to logo
+        offCtx.globalCompositeOperation = 'source-in';
+        offCtx.fillStyle = themeHex;
+        offCtx.fillRect(0, 0, iconSize, iconSize);
+        
+        // Draw colored logo onto main canvas
+        ctx.drawImage(offscreen, startX, centerY - iconSize / 2 + 5);
 
         // 2. Draw Amount Text
         ctx.fillStyle = themeHex; 
         ctx.textAlign = 'left'; 
-        ctx.fillText(formattedAmount, startX + iconSize + gap, centerY + 14); // +14 aligns text with icon vertically
+        ctx.fillText(formattedAmount, startX + iconSize + gap, centerY + 18);
 
         // 3. Draw "donated to" Text
-        ctx.font = '22px Montserrat'; 
+        ctx.font = 'bold 20px Roboto, sans-serif'; 
         ctx.fillStyle = '#FFFFFF'; 
         ctx.textAlign = 'center'; 
-        ctx.fillText('donated to', canvasWidth / 2, centerY + 50);
+        ctx.fillText('donated to', canvasWidth / 2, centerY + 55);
 
         // << Draw Usernames >> //
-        ctx.font = '16px Montserrat'; 
+        ctx.font = 'bold 15px Roboto, sans-serif'; 
         ctx.fillStyle = '#FFFFFF'; 
         ctx.textAlign = 'center';
         
