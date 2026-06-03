@@ -159,6 +159,73 @@ function drawAvatar(ctx, img, cx, cy, radius, borderColor) {
 }
 
 // ==============================
+// Glow / gradient helpers
+// ==============================
+
+/**
+ * tier:
+ *   'none'     — no glow (nuke / ≥100 < 1000)
+ *   'bottom'   — subtle glow only at the very bottom strip (smite / ≥1000 < 10000)
+ *   'half'     — glow fills bottom half (starfall / ≥10000)
+ *   'full'     — original full gradient (default blimp tier, unused now but kept)
+ */
+function drawBackground(ctx, W, H, r, g, b, tier) {
+    // Always fill black first
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, W, H);
+
+    if (tier === 'none') {
+        // Pure black — no glow at all
+        return;
+    }
+
+    if (tier === 'bottom') {
+        // Glow only in the bottom ~25% of the image
+        const glow = ctx.createLinearGradient(0, H, 0, H * 0.75);
+        glow.addColorStop(0,   `rgba(${r},${g},${b},0.45)`);
+        glow.addColorStop(1,   `rgba(${r},${g},${b},0.00)`);
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+        return;
+    }
+
+    if (tier === 'half') {
+        // Glow fills the bottom half
+        const glow = ctx.createLinearGradient(0, H, 0, H * 0.5);
+        glow.addColorStop(0,   `rgba(${r},${g},${b},0.50)`);
+        glow.addColorStop(0.6, `rgba(${r},${g},${b},0.20)`);
+        glow.addColorStop(1,   `rgba(${r},${g},${b},0.00)`);
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+        return;
+    }
+
+    // 'full' — original behavior (kept for safety)
+    const glow = ctx.createLinearGradient(0, H, 0, 0);
+    glow.addColorStop(0,   `rgba(${r},${g},${b},0.35)`);
+    glow.addColorStop(0.5, `rgba(${r},${g},${b},0.10)`);
+    glow.addColorStop(1,   `rgba(0,0,0,0)`);
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+}
+
+// ==============================
+// VxidLogs Watermark
+// ==============================
+
+function drawVxidWatermark(ctx, W, H, themeHex) {
+    ctx.save();
+    ctx.font         = `bold 11px ${fontName}`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.globalAlpha  = 0.45;
+    ctx.fillStyle    = themeHex;
+    ctx.fillText('VxidLogs', W - 10, H - 6);
+    ctx.globalAlpha  = 1;
+    ctx.restore();
+}
+
+// ==============================
 // Main Handler
 // ==============================
 
@@ -174,36 +241,43 @@ module.exports = async function handler(req, res) {
             donatorAvatar,
             receiverAvatar,
             amount,
-            webhookUrl
+            webhookUrl,
+            // Dev product fields (optional)
+            devProductId,
+            devProductName,
         } = req.body;
 
         if (!donatorAvatar || !receiverAvatar || !amount || !webhookUrl) {
             return res.status(400).json({ error: 'Missing fields' });
         }
 
-        await Promise.all([ensureFont(), getRobuxIcon()]);
-
         const numAmount = parseInt(
             typeof amount === 'string' ? amount.replace(/,/g, '') : amount
         );
 
-        // ── Theme color ──
-        let themeHex = '#00FF47';
-        let emoji    = '<:robux:1451215082640900146>';
+        // ── Block donations under 100 Robux ──
+        if (numAmount < 100) {
+            console.log(`Skipping donation of ${numAmount} — below minimum of 100`);
+            return res.status(200).json({ success: false, skipped: true, reason: 'Below minimum threshold of 100 Robux' });
+        }
+
+        await Promise.all([ensureFont(), getRobuxIcon()]);
+
+        // ── Theme + tier ──
+        let themeHex  = '#ff00bf'; // nuke default (100–999)
+        let emoji     = '<:nukeig:1490656026603683940>';
+        let glowTier  = 'none';    // nuke = no glow
 
         if (numAmount >= 10000) {
             themeHex = '#FF0037';
             emoji    = '<:starfall:1490655938506395829>';
+            glowTier = 'half';
         } else if (numAmount >= 1000) {
             themeHex = '#FF0062';
             emoji    = '<:smitebro:1490655992025841804>';
-        } else if (numAmount >= 100) {
-            themeHex = '#ff00bf';
-            emoji    = '<:nukeig:1490656026603683940>';
-        } else if (numAmount >= 10) {
-            themeHex = '#00E6FF';
-            emoji    = '<:blimp:1451215188031181024>';
+            glowTier = 'bottom';
         }
+        // 100–999: nuke, no glow (defaults above)
 
         const r = parseInt(themeHex.slice(1, 3), 16);
         const g = parseInt(themeHex.slice(3, 5), 16);
@@ -214,13 +288,7 @@ module.exports = async function handler(req, res) {
         const canvas = createCanvas(W, H);
         const ctx = canvas.getContext('2d');
 
-        // Gradient from bottom up
-        const glow = ctx.createLinearGradient(0, H, 0, 0);
-        glow.addColorStop(0,   `rgba(${r},${g},${b},0.35)`);
-        glow.addColorStop(0.5, `rgba(${r},${g},${b},0.10)`);
-        glow.addColorStop(1,   `rgba(0,0,0,0)`);
-        ctx.fillStyle = glow;
-        ctx.fillRect(0, 0, W, H);
+        drawBackground(ctx, W, H, r, g, b, glowTier);
 
         // ── Load avatars ──
         const [dBuf, rBuf] = await Promise.all([
@@ -260,7 +328,6 @@ module.exports = async function handler(req, res) {
         const groupLeft = centerX - groupW / 2;
         const rowY      = H / 2 - 18;
 
-        // Draw Robux icon WITH black stroke outline
         if (robuxIconCache) {
             drawRobuxWithStroke(
                 ctx,
@@ -269,21 +336,34 @@ module.exports = async function handler(req, res) {
                 rowY,
                 iconSize,
                 themeHex,
-                2 // thin stroke
+                2
             );
         }
 
-        // Amount text WITH black stroke
         ctx.textAlign = 'left';
         drawStrokedText(ctx, amtText, groupLeft + iconSize + gap, rowY, themeHex, 5);
 
-        // "donated to" WITH black stroke
+        // "donated to"
         ctx.font         = `bold 20px ${fontName}`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'alphabetic';
         drawStrokedText(ctx, 'donated to', centerX, H / 2 + 30, '#FFFFFF', 4);
 
-        // Usernames WITH black stroke
+        // Dev product label (shown below "donated to" if provided)
+        if (devProductName) {
+            ctx.font      = `bold 13px ${fontName}`;
+            ctx.textAlign = 'center';
+            drawStrokedText(
+                ctx,
+                `via ${devProductName}`,
+                centerX,
+                H / 2 + 50,
+                themeHex,
+                3
+            );
+        }
+
+        // Usernames
         ctx.font      = `bold 13px ${fontName}`;
         ctx.textAlign = 'center';
 
@@ -291,6 +371,9 @@ module.exports = async function handler(req, res) {
 
         drawStrokedText(ctx, '@' + trim(donatorName),  leftCX,  avatarCY + avatarRadius + 22, '#FFFFFF', 4);
         drawStrokedText(ctx, '@' + trim(receiverName), rightCX, avatarCY + avatarRadius + 22, '#FFFFFF', 4);
+
+        // VxidLogs watermark
+        drawVxidWatermark(ctx, W, H, themeHex);
 
         // ── Time ──
         const now = new Date();
@@ -303,12 +386,31 @@ module.exports = async function handler(req, res) {
         const imgBuf = canvas.toBuffer('image/png');
         const form   = new FormData();
 
+        // Build content string — include dev product info if provided
+        let contentStr = `${emoji} \`@${donatorName}\` donated <:robux:1451215082640900146> **${formatNumber(numAmount)} Robux** to \`@${receiverName}\``;
+        if (devProductName) {
+            contentStr += ` via **${devProductName}**`;
+            if (devProductId) contentStr += ` (ID: \`${devProductId}\`)`;
+        }
+
+        const embedFields = [];
+        if (devProductName) {
+            embedFields.push({
+                name: '🛒 Dev Product',
+                value: devProductId
+                    ? `${devProductName} — \`${devProductId}\``
+                    : devProductName,
+                inline: true
+            });
+        }
+
         const payload = {
-            content: `${emoji} \`@${donatorName}\` donated <:robux:1451215082640900146> **${formatNumber(numAmount)} Robux** to \`@${receiverName}\``,
+            content: contentStr,
             embeds: [{
                 color: hexToDec(themeHex),
+                fields: embedFields.length > 0 ? embedFields : undefined,
                 image: { url: 'attachment://donation.png' },
-                footer: { text: `Donated on • Today at ${dh}:${mm} ${ap}` }
+                footer: { text: `VxidLogs • Donated on • Today at ${dh}:${mm} ${ap}` }
             }]
         };
 
